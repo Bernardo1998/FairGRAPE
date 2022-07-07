@@ -232,7 +232,13 @@ def download_dataset(dataset,img_dir):
         files = os.listdir(subfolder)
         for file in files:
             src = os.path.join(subfolder, file)
-            dst = os.path.join(img_dir, file)
+            # FairFace images comes with train/val split. But we reshuffle them to add a test split later.
+            # So image names will have prefix "train" or "val"
+            if dataset == 'FairFace':
+                split = subfolder.split("/")[-2]
+                dst = os.path.join(img_dir, "_".join([split,file]))
+            else:
+                dst = os.path.join(img_dir, file)
             shutil.move(src, dst)
         os.rmdir(subfolder)
 

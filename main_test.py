@@ -33,7 +33,7 @@ def experiment(args):
 
     if dataset == 'FairFace':
         csv = 'csv/FairFace.csv'
-        face_dir = 'Images/FairFace/face_align'
+        face_dir = 'Images/FairFace'
         download_dataset(dataset, face_dir)
         # Which variables are used in training.          
         if loss_type == 'race':
@@ -98,7 +98,7 @@ def experiment(args):
     # Make dir for saving results
     save_dir = "trained_model/{}".format(prune_type)
     csv_savedir = "fair_dfs"
-    dirs = [csv_savedir, 'models', save_dir， "Images"]
+    dirs = [csv_savedir, 'models', save_dir,"Images"]
     for path in dirs:
         if not os.path.exists(path):
             os.makedirs(path)

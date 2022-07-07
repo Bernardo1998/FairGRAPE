@@ -24,7 +24,7 @@ python main_test.py --sensitive_group 'gender' --loss_type 'race' --prune_type '
 
 UTKFace experiments:
 ```
-python main_test.py --sensitive_group 'gender' --loss_type 'race' --prune_type 'FairGRAPE' --network 'resnet34' --dataset 'UTKFace'  --prune_rate 0.9 --keep_per_iter = 0.975
+python main_test.py --sensitive_group 'gender' --loss_type 'race' --prune_type 'FairGRAPE' --network 'resnet34' --dataset 'UTKFace'  --prune_rate 0.9 --keep_per_iter 0.975
 ```
 
 CelebA experiments

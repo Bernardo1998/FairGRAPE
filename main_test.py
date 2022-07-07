@@ -5,7 +5,6 @@ import math
 import os
 import argparse
 import datetime
-from statistics import stdev
 
 from dataset import make_frame, make_datasets
 from prune import WS, SNIP, GraSP, Lottery, FairGRAPE, Importance, Random
@@ -98,8 +97,8 @@ def experiment(args):
 
     # Make dir for saving results
     save_dir = "trained_model/{}".format(prune_type)
-    csv_savedir = "fair_dfs1"
-    dirs = [csv_savedir, 'models', save_dir]
+    csv_savedir = "fair_dfs"
+    dirs = [csv_savedir, 'models', save_dir， "Images"]
     for path in dirs:
         if not os.path.exists(path):
             os.makedirs(path)

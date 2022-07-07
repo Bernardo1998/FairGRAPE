@@ -1,6 +1,6 @@
 # FairGRAPE: Fairness-aware GRAdient Pruning mEthod for Face Attribute Classification
 
-This repo presents an official implementation of the following paper: FairGRAPE: Fairness-aware GRAdient Pruning mEthod for Face Attribute Classification
+## This repo presents an official implementation of FairGRAPE: Fairness-aware GRAdient Pruning mEthod for Face Attribute Classification
 
 ## Dependencies
 
@@ -12,7 +12,6 @@ opencv2 4.5.5
 
 ## Datasets
 
-
 This code automatically downloads the following datasets for trianing, cross validation and testing: [FairFace](https://github.com/joojs/fairface), [UTKFace](https://susanqq.github.io/UTKFace/) and [CelebA](https://mmlab.ie.cuhk.edu.hk/projects/CelebA.html). Please request the person subtree of Imagenet through the offical [database](https://image-net.org/)
 
 
@@ -20,7 +19,7 @@ This code automatically downloads the following datasets for trianing, cross val
 
 FairFace experiments
 ```
-python3 main_test.py --sensitive_group 'gender' --prune_type 'FG' --network 'mobilenetv2' --dataset 'ImbalancedFairFace'  --prune_rate 0.9 
+python main_test.py --sensitive_group 'gender' --loss_type 'race' --prune_type 'FairGRAPE' --network 'resnet34' --dataset 'FairFace'  --prune_rate 0.99
 ```
 
 UTKFace experiments:

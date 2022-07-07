@@ -14,6 +14,8 @@ from tqdm import tqdm
 import gdown
 import zipfile
 import tarfile
+from statistics import stdev
+import shutil
 
 # Initialize with  pretrained model
 def make_model(pruning = True, network = "resnet34", dataset="FairFace",n_classes=18):

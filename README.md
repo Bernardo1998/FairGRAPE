@@ -1,6 +1,8 @@
 # FairGRAPE: Fairness-aware GRAdient Pruning mEthod for Face Attribute Classification
 
-## This repo presents an official implementation of FairGRAPE: Fairness-aware GRAdient Pruning mEthod for Face Attribute Classification
+This repo presents an official implementation of FairGRAPE: Fairness-aware GRAdient Pruning mEthod for Face Attribute Classification
+
+![FairGRAPE_concept2](https://user-images.githubusercontent.com/60991389/177890025-4599bd0f-176d-4f5f-aff8-73df9c963a6e.png)
 
 ## Dependencies
 

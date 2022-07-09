@@ -31,7 +31,7 @@ forward_mapping_dict = {
 }
 
 ################
-# SNIP code from github
+# Based on SNIP code from github
 ################
 class Prunner:
 
@@ -475,26 +475,13 @@ def fairness_grad(model, prune_ratio, test_csv, new_img_dir=None, sensitive_clas
 	elif impt_type == 2:
 		_,grad_mag_by_race = importance_by_class2(model, test_csv, new_img_dir, output_cols_each_task,col_names)	
 
-	# calculate the target distribution of gradient on full model at each layer
+	# calculate the target distribution of gradient on pre-pruning model at each layer
+	# Note that this input model might have been previously pruned as well.
 	grad_mag_each_race = defaultdict(list)
 	for race in grad_mag_by_race.keys():
 		race_grad_mag = grad_mag_by_race[race]
 		for layer_name in race_grad_mag:
 			grad_mag_each_race[layer_name].append(torch.sum(race_grad_mag[layer_name].abs()))
-	
-	#################
-	# Filter out most values using WEIGHTS
-	#################
-	total = 0
-	layer_idx,layer_idx_to_name, layer_name_to_idx = 0, {}, {}
-	for name, layer in model.named_modules():
-		if type(layer).__name__ in supported_layers:
-			total += torch.prod(torch.tensor(layer.weight.shape))
-			layer_idx_to_name[layer_idx] = name
-			layer_name_to_idx[name] = layer_idx
-			layer_idx += 1
-			last_layer = name
-	num_to_select = int(total * (1-prune_ratio))
 
         # CAUTION, grads still have negatives.
 	n_classes = sensitive_classes
@@ -507,8 +494,8 @@ def fairness_grad(model, prune_ratio, test_csv, new_img_dir=None, sensitive_clas
 		#print(np.array(grad_this_layer))
 		grad_target_total += np.array(grad_this_layer)
 
-	# For each weight, record class importance and idx within layer.
-	# Notice! The selection below is done using different metrics
+	# For each weight, record its group-wise importance and idx within layer.
+	# Notice! The selection below can be done using different metrics
 	grad_by_layer_sorted = {}
 	for name, layer in model.named_modules():
 		grad_by_layer_sorted[name] = {}
@@ -542,6 +529,7 @@ def fairness_grad(model, prune_ratio, test_csv, new_img_dir=None, sensitive_clas
 	for name,layer in model.named_modules():
 		layer_parameters.append([name, layer,grad_by_layer_sorted[name],grad_target,n_classes])
 
+	# This function is designed to facilitate parallel processing, but only n_jobs = 1 available for now.
 	def greed_one_layer(layer_parameter):
 		name, layer,grad_by_layer_sorted_layer,grad_target,n_classes = layer_parameter
 		if type(layer).__name__ not in supported_layers:
@@ -769,7 +757,8 @@ def importance_by_class1(model_path, test_csv, new_img_dir=None, masked_grads=Tr
                      
     return grad_each_group, H_each_group
 
-
+# Keys of grad_each_group are sensitive groups.
+# Keys of grad_at_each_layer are model layers.
 def make_mask_by_grad(grad_each_group, n_classes=7):
     groups = [i for i in range(n_classes)]
     layer_names = list(grad_each_group[0].keys())

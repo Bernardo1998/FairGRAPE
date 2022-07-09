@@ -23,7 +23,7 @@ warnings.filterwarnings("ignore")
 def split_image_name(val):
     return val.split('/')[-1]
 
-def relabel(frame, seven_races=True, drop_white=False):
+def relabel(frame, seven_races=True, drop_race=False):
 
 	# relabel races for training
 	if 'race' in frame.columns:
@@ -61,13 +61,21 @@ def relabel(frame, seven_races=True, drop_white=False):
 		frame = frame[frame['race']!=0].reset_index(drop=True)
 		#frame.loc[frame['race'] != 0, 'race'] = frame.loc[frame['race'] != 0, 'race'] - 1
 
-	if 'race' in frame.columns and 'gender' in frame.columns:
-		n_races = max(frame['race']) + 1
-		frame['raceAndgender'] = frame['race'] + frame['gender'] * n_races
+	# Different behaviors of drop_race:
+	# =0: nothing
+	# =1/2/3/4: drop white/black/asian/indian
+	# =11/12/13/14: keep only white/black/asian/indian
+	if drop_race and 'race' in frame.columns:
+		if drop_race in [1,2,3,4]:
+			drop_race -= 1
+			frame = frame[frame['race']!=drop_race].reset_index(drop=True)
+		elif drop_race in [11,12,13,14]:
+			drop_race -= 11
+			frame = frame[frame['race']==drop_race].reset_index(drop=True)
 
 	return frame
 
-def make_frame(csv, new_face_dir, train_pct = 0.8, seven_races=True,drop_white=False):
+def make_frame(csv, new_face_dir, train_pct = 0.8, seven_races=True,drop_race=False):
 	device = torch.device('cuda:0')
 	frame = pd.read_csv(csv)
 	frame.head()

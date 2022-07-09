@@ -23,11 +23,12 @@ def experiment(args):
     prune_rate = args.prune_rate # [0.5, 0.7, 0.8, 0.9, 0.99]
     batch_size = args.batch
     init_train = args.init_train == 1
-    drop_white = args.drop_white == 1
+    drop_race = args.drop_race # See util.make_frame() for detail
     retrain = args.retrain == 1
     save_mask = args.save_mask == 1
     delta_p = args.delta_p
     print_acc = args.print_acc == 1
+    exp_idx = args.exp_idx 
     
     print("Type:{}, Network:{}, Sparsity:{}, Dataset:{}".format(prune_type, network, prune_rate,dataset))
 
@@ -47,7 +48,7 @@ def experiment(args):
         # when trainging the model for a given task we exclude sensitive group information
         col_used = col_used_training + [sensitive_group]
         epoches = [13,3,3]
-        frames = make_frame(csv, face_dir, drop_white=drop_white)
+        frames = make_frame(csv, face_dir, drop_race=drop_race)
     elif dataset == 'UTKFace':
         csv = 'csv/UTKFace_labels.csv'
         face_dir = 'Images/UTKFace'
@@ -62,8 +63,8 @@ def experiment(args):
         col_used = col_used_training + [sensitive_group]
         epoches = [13,3,3]
         frames = make_frame(csv, face_dir, seven_races=False)
-        if drop_white:
-            frames_minority = make_frame(csv, face_dir, seven_races=False, drop_white=drop_white)
+        if drop_race:
+            frames_minority = make_frame(csv, face_dir, seven_races=False, drop_race=drop_race)
             train_loader_minority,_ = make_datasets(frames_minority['train'], frames_minority['val'], True, batch_size,col_used)
     elif dataset == "CelebA":
         csv = 'csv/CelebA.csv'
@@ -120,7 +121,8 @@ def experiment(args):
     elif prune_type == 'Lottery':
         prune_cfgs = [prune_rate]
     elif prune_type == 'GraSP':
-        # GraSP needs to select a batch balanced wrt output classes.
+        # GraSP selects a batch balanced w.r.t output classes (not sensitive groups) for signal calculation.
+	# In CelebA and Imagenet, the numbers of classes are large, limiting the samples_per_class.
         if len(col_used_training) > 1:
             target_col, samples_per_class, num_classes = [i for i in range(len(col_used_training))], 1, len(col_used_training)
         else:
@@ -147,7 +149,7 @@ def experiment(args):
     ########################
     # Set iterative pruning. If prune_iter = 1 then it`s single shot
     #########################
-    pct_remain_after_this_iter = args.init_pruned
+    pct_remain_after_this_iter = 1 - args.init_pruned
     if prune_type in ['WS', 'SNIP', 'GraSP','Full','Random']:
         prune_iters = 1 if prune_type != 'Full' else 0
         retrain_lr = 0
@@ -161,7 +163,7 @@ def experiment(args):
         keep_per_iter = args.keep_per_iter 
         lr_decay_iter = args.lr_decay_iter
         # determine parameters are needed if not specified
-        prune_iters = int(math.log((1-prune_rate)/pct_remain_after_this_iter, keep_per_iter)) if prune_iters is None else prune_iters 
+        prune_iters = math.ceil(math.log((1-prune_rate)/pct_remain_after_this_iter, keep_per_iter)) if prune_iters is None else prune_iters 
         lr_decay_iter = int(prune_iters * 0.7) if lr_decay_iter is None else lr_decay_iter 
 
     if init_train or prune_type in ['WS', 'Full', 'FairGRAPE','Lottery', 'Importance'] or print_acc:
@@ -171,12 +173,13 @@ def experiment(args):
 
     print("Iters to prune:", prune_iters)
     if prune_type in pruner_map:
-        prune_loader = train_loader if not drop_white else train_loader_minority
+        prune_loader = train_loader if not drop_race else train_loader_minority
         prunner = pruner_map[prune_type](best_model, criterion, prune_loader,output_cols_each_task, save_mask)
 
     if checkpoint is not None:
         print("Loading checkpoint from {}".format(checkpoint))
-        prunner.init_mask() # Checkpoint contains mask attribute for layers. Must init in model before loading.
+        # Checkpoints contain mask attributes in layers. Must init before loading.
+        prunner.init_mask() 
         best_model = prunner.get_model()
         best_model.load_state_dict(torch.load(checkpoint))
         best_model = best_model.to(device)
@@ -185,6 +188,7 @@ def experiment(args):
     for i in range(prune_iters):
         print('Current time:', datetime.datetime.now())
         pct_remain_after_this_iter *= keep_per_iter 
+        # Make sure pruned parameters do not go beyond desired sparsity rate.
         accumulated_pruned = min(1-pct_remain_after_this_iter, prune_rate)
         print("\nPrune iter:{}, prop of weights remain after this iter:{}".format(i, 1-accumulated_pruned))
         prune_cfgs[0] = accumulated_pruned # Update the actual amount to keep for each iteration.
@@ -198,7 +202,6 @@ def experiment(args):
         print("Training after pruning!")
         best_model = train(best_model, criterion, dataloaders,lr_schedule, epoches,col_used_training, output_cols_each_task)        
     # Save model
-    exp_idx = args.exp_idx 
     save_model(best_model,[prune_type,dataset,prune_type,loss_type,sensitive_group,network,prune_rate, exp_idx])
 
     # Save prediction output
@@ -217,24 +220,24 @@ if __name__ == "__main__":
     parser.add_argument('--prune_type',type=str, default='FairGRAPE', help='Pruning method to test')
     parser.add_argument('--loss_type',type=str, default='gender', help='Classification Tasks')
     parser.add_argument('--sensitive_group',type=str, default='gender', help='Sensitive group to control gradient for')
-    parser.add_argument('--init_pruned',type=float, default=1, help='How many parameters remain at the begining')
+    parser.add_argument('--init_pruned',type=float, default=0, help='How many parameters already pruned.')
     parser.add_argument('--prune_rate',type=float, default=0.9, help='Desired Sparsity level')
     parser.add_argument('--prune_iter',type=int, default=None, help='Iterations in iterative pruning')
-    parser.add_argument('--retrain_iter',type=int, default=3, help='Number of retraining after each pruning.')
-    parser.add_argument('--retrain_lr',type=float, default=1e-5, help='Learning rate of retrainig.')
-    parser.add_argument('--keep_per_iter',type=float, default=0.9, help='Pruning step.')
+    parser.add_argument('--retrain_iter',type=int, default=3, help='Number of retraining after each pruning')
+    parser.add_argument('--retrain_lr',type=float, default=1e-5, help='Learning rate of retraining')
+    parser.add_argument('--keep_per_iter',type=float, default=0.9, help='Pruning step')
     parser.add_argument('--lr_decay_iter',type=int, default=15, help='Iterations after which learning rate would decay.')
-    parser.add_argument('--batch',type=int, default=64, help='Batch size in data loaders.')
-    parser.add_argument('--impt',type=int, default=0, help='Type of importance score to be returned.')
-    parser.add_argument('--para_batch',type=int, default=1, help='Parameters selected before updating race group in greedy method.')
-    parser.add_argument('--stop_batch',type=int, default=10000, help='Mini-batches of samples used in importance calculation')
-    parser.add_argument('--exp_idx',type=int, default=0, help='idx of current experiment')
-    parser.add_argument('--init_train',type=int, default=0,help='whether initial training is conducted')
-    parser.add_argument('--drop_white', type=int, default=0,help="Dropping white samples or not")
-    parser.add_argument('--retrain', type=int, default=1,help="Retraining after pruning")
-    parser.add_argument('--save_mask', type=int, default=0,help="Save the pruning mask or not.")
-    parser.add_argument('--print_acc', type=int, default=0,help="Show test acc after pruning and fine tuning.")
-    parser.add_argument('--delta_p', type=int, default=0, help="FG selects next node by i(0) or p(1), or i * p(2).")
+    parser.add_argument('--batch',type=int, default=64, help='Batch size in dataloaders')
+    parser.add_argument('--impt',type=int, default=0, help='Type of importance score to be returned')
+    parser.add_argument('--para_batch',type=int, default=1, help='Parameters selected before updating race group in greedy method')
+    parser.add_argument('--stop_batch',type=int, default=10000, help='Mini-batches of images used in importance calculation')
+    parser.add_argument('--exp_idx',type=int, default=0, help='Index of current experiment')
+    parser.add_argument('--init_train',type=int, default=0,help='Whether initial training is conducted')
+    parser.add_argument('--drop_race', type=int, default=0,help="Dropping selected race(s) or not")
+    parser.add_argument('--retrain', type=int, default=1,help="Retraining after pruning or not")
+    parser.add_argument('--save_mask', type=int, default=0,help="Save pruning masks as an npy file")
+    parser.add_argument('--print_acc', type=int, default=0,help="Show test acc after pruning and fine tuning")
+    parser.add_argument('--delta_p', type=int, default=0, help="FG selects next node by i(0) or p(1), or i*p(2)")
 
     args = parser.parse_args()
 

@@ -29,6 +29,21 @@ def experiment(args):
     delta_p = args.delta_p
     print_acc = args.print_acc == 1
     exp_idx = args.exp_idx 
+
+
+    # Set random seeds for training/eval
+    seed = args.seed
+    torch.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    # Make dir for saving results
+    save_dir = "trained_model/{}".format(prune_type)
+    csv_savedir = "fair_dfs"
+    dirs = [csv_savedir, 'models', save_dir,"Images"]
+    for path in dirs:
+        if not os.path.exists(path):
+            os.makedirs(path)
     
     print("Type:{}, Network:{}, Sparsity:{}, Dataset:{}".format(prune_type, network, prune_rate,dataset))
 
@@ -48,7 +63,10 @@ def experiment(args):
         # when trainging the model for a given task we exclude sensitive group information
         col_used = col_used_training + [sensitive_group]
         epoches = [13,3,3]
-        frames = make_frame(csv, face_dir, drop_race=drop_race)
+        frames = make_frame(csv, face_dir)
+        if drop_race:
+            frames_minority = make_frame(csv, face_dir, drop_race=drop_race)
+            train_loader_minority,_ = make_datasets(frames_minority['train'], frames_minority['val'], True, batch_size,col_used)
     elif dataset == 'UTKFace':
         csv = 'csv/UTKFace_labels.csv'
         face_dir = 'Images/UTKFace'
@@ -95,14 +113,9 @@ def experiment(args):
     lr_schedule = [1e-4, 1e-5,1e-6]
     train_loader, test_loader = make_datasets(frames['train'], frames['val'], True, batch_size,col_used)
     dataloaders = {'train':train_loader, 'test':test_loader}
-
-    # Make dir for saving results
-    save_dir = "trained_model/{}".format(prune_type)
-    csv_savedir = "fair_dfs"
-    dirs = [csv_savedir, 'models', save_dir,"Images"]
-    for path in dirs:
-        if not os.path.exists(path):
-            os.makedirs(path)
+    
+    save_model_iter = args.save_model_iter
+    print(save_model_iter)
 
     device = torch.device('cuda:0')
     criterion = nn.CrossEntropyLoss()
@@ -127,8 +140,8 @@ def experiment(args):
             target_col, samples_per_class, num_classes = [i for i in range(len(col_used_training))], 1, len(col_used_training)
         else:
             target_col, samples_per_class, num_classes = len(col_used_training) - 1 , 10, total_classes
-        if drop_white and loss_type == 'race':
-            num_classes -= 1
+        if drop_race and loss_type == 'race':
+            num_classes = num_classes - 1 if drop_race < 10 else 1
         prune_cfgs = [prune_rate, target_col, num_classes, samples_per_class]
     elif prune_type == "FairGRAPE" or prune_type == "Importance":
         sensitive_classes = len(set(frames['train'][sensitive_group]))
@@ -138,7 +151,7 @@ def experiment(args):
             sensitive_classes = total_classes
         para_batch = args.para_batch
         stop_batch = args.stop_batch
-        prune_cfgs = [prune_rate, frames['val'], face_dir, sensitive_classes, masked_grads, output_cols_each_task ,col_used, para_batch, impt, stop_batch, delta_p]
+        prune_cfgs = [prune_rate, frames['train'], face_dir, sensitive_classes, masked_grads, output_cols_each_task ,col_used, para_batch, impt, stop_batch, delta_p]
     elif prune_type == "Random":
         prune_cfgs = [prune_rate, True]
     elif prune_type == 'Full':
@@ -166,7 +179,7 @@ def experiment(args):
         prune_iters = math.ceil(math.log((1-prune_rate)/pct_remain_after_this_iter, keep_per_iter)) if prune_iters is None else prune_iters 
         lr_decay_iter = int(prune_iters * 0.7) if lr_decay_iter is None else lr_decay_iter 
 
-    if init_train or prune_type in ['WS', 'Full', 'FairGRAPE','Lottery', 'Importance'] or print_acc:
+    if init_train and prune_type in ['WS', 'Full', 'FairGRAPE','Lottery', 'Importance'] or print_acc:
         print("Training before pruning!" if prune_type != 'Full' else "No pruning, full training!")
         best_model = train(best_model, criterion, dataloaders,lr_schedule, epoches,col_used_training, output_cols_each_task) 
         full_fair_df = save_output(best_model,[dataset, prune_type,loss_type,prune_rate, frames['test'], face_dir, total_classes, network, col_used, output_cols_each_task, sensitive_group, exp_idx],csv_savedir, False)
@@ -196,6 +209,10 @@ def experiment(args):
         if retrain_iters > 0:
             best_model = train(best_model, criterion, dataloaders,[retrain_lr], [retrain_iters],col_used_training, output_cols_each_task)
         prunner.update_model(best_model) 
+        # Save model at some iterations.
+        if i in save_model_iter:
+            save_model(best_model,[prune_type,dataset,prune_type,loss_type,sensitive_group,network,accumulated_pruned, exp_idx])
+
 
     # Retraining after pruning
     if prune_iters > 0 and retrain:
@@ -238,8 +255,9 @@ if __name__ == "__main__":
     parser.add_argument('--save_mask', type=int, default=0,help="Save pruning masks as an npy file")
     parser.add_argument('--print_acc', type=int, default=0,help="Show test acc after pruning and fine tuning")
     parser.add_argument('--delta_p', type=int, default=0, help="FG selects next node by i(0) or p(1), or i*p(2)")
+    parser.add_argument('--seed', type=int, default=42, help="Random seed.")
+    parser.add_argument('--save_model_iter', nargs='+', help='Save current model at selected iterations', type=int,default=-1)
 
     args = parser.parse_args()
 
     experiment(args)
-

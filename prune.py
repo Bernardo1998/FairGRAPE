@@ -539,10 +539,6 @@ def fairness_grad(model, prune_ratio, test_csv, new_img_dir=None, sensitive_clas
 		layer_total = int(torch.prod(torch.tensor(layer.weight.shape)))
 		num_to_select_this_layer = int(layer_total * (1-prune_ratio))
 
-		if name == last_layer:
-			total_this_layer = len(grad_by_layer_sorted_layer[0][0])
-			num_to_select_this_layer = min(int(layer_total * (1-prune_ratio)), total_this_layer)
-
 		n_selected_this_layer = 0
 		last_printed_freq = 0
 

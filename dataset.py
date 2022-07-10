@@ -57,10 +57,6 @@ def relabel(frame, seven_races=True, drop_race=False):
 		#frame = frame[frame['race']!=3]
 		Counter(frame.race)
 
-	if drop_white and 'race' in frame.columns:
-		frame = frame[frame['race']!=0].reset_index(drop=True)
-		#frame.loc[frame['race'] != 0, 'race'] = frame.loc[frame['race'] != 0, 'race'] - 1
-
 	# Different behaviors of drop_race:
 	# =0: nothing
 	# =1/2/3/4: drop white/black/asian/indian
@@ -80,7 +76,7 @@ def make_frame(csv, new_face_dir, train_pct = 0.8, seven_races=True,drop_race=Fa
 	frame = pd.read_csv(csv)
 	frame.head()
 
-	frame = relabel(frame, seven_races,drop_white)
+	frame = relabel(frame, seven_races,drop_race)
 
 	# Change face_name_align if the images are now stored in a different dir
 	# Also make sure all faces are found and can be

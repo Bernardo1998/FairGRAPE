@@ -235,7 +235,7 @@ def download_dataset(dataset,img_dir):
             # FairFace images comes with train/val split. But we reshuffle them all together to add a test split. 
             # So FairFace image names will have prefix "train" or "val".
             if dataset == 'FairFace':
-                split = subfolder.split("/")[-2]
+                split = subfolder.split("/")[-1]
                 dst = os.path.join(img_dir, "_".join([split,file]))
             else:
                 dst = os.path.join(img_dir, file)

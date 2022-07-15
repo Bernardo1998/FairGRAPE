@@ -14,6 +14,7 @@ import dlib
 import time
 import os
 from torch.utils.data import Dataset, DataLoader
+import json
 
 # Ignore warnings
 import warnings
@@ -22,6 +23,47 @@ warnings.filterwarnings("ignore")
 # Split into train/validation/test sets so that all faces from one image belong to the same set
 def split_image_name(val):
     return val.split('/')[-1]
+
+# Demographic labels of the ImageNet person subtree must be acquired through the ImageNet database.
+# The function below requires following files/dirs:
+# 1, csv/synsets_safety.csv: https://image-net.org/data/synsets_safety.csv
+# 2, csv/imageability_scores.csv: https://image-net.org/data/imageability_scores.csv
+# 3, csv/ImageNet demographics annotations.json: request from the ImageNet team.
+# 4, Images/Imagenet: create this folder that contains all images listed in ImageNet demographics annotations.json
+# The files above will be combined to create an annotation file saved at path specified by csv.
+def prepare_ImageNet(csv):
+	if os.path.exist(csv):
+		print("ImageNet annotation exist!")
+		return
+
+	safety = pd.read_csv("csv/synsets_safety.csv")
+	safeid = set(safety['wnid'][safety['safety'] == "safe"])
+
+	imageable = pd.read_csv("csv/imageability_scores.csv")
+	imageableid = imageable['wnid'][imageable['imageability.score'] >= 4]
+
+	annot_df = {'image_name':[],'classes':[],"gender":[]}
+	with open('csv/ImageNet demographics annotations.json', 'r') as annt_file:
+		labels = json.load(annt_file)
+
+	for i, label in enumerate(labels):
+		url = label['url']
+		wnid = url.split("_")[0]
+		if wnid not in safeid or wnid not in imageableid:
+			continue
+		if len(label['gender']) > 1 or label['gender'][0] == "unsure":
+			continue
+		gender = 0 if label['gender'][0] == 'male' else 1
+		annot_df['image_name'].append(url)
+		annot_df['classes'].append(wnid)
+		annot_df['gender'].append(gender)
+
+	annot_df = pd.DataFrame(annot_df)
+	n_per_class = Counter(annot_df['classes'])
+	classes_enough_sample = np.array([n_per_classes[wnid] >= 10 for wnid in annot_df['classes']])
+	annot_df = annot_df[classes_enough_sample].reset_index(drop=True)
+
+	annot_df.to_csv(csv)
 
 def relabel(frame, seven_races=True, drop_race=False):
 
@@ -56,7 +98,7 @@ def relabel(frame, seven_races=True, drop_race=False):
 		# Drop Indian (for comparison with LFWA+ only)
 		#frame = frame[frame['race']!=3]
 		Counter(frame.race)
-
+		
 	# Different behaviors of drop_race:
 	# =0: nothing
 	# =1/2/3/4: drop white/black/asian/indian
@@ -69,14 +111,35 @@ def relabel(frame, seven_races=True, drop_race=False):
 			drop_race -= 11
 			frame = frame[frame['race']==drop_race].reset_index(drop=True)
 
+	if 'race' in frame.columns and 'gender' in frame.columns:
+		n_races = max(frame['race']) + 1
+		frame['raceAndgender'] = frame['race'] + frame['gender'] * n_races
+
 	return frame
 
-def make_frame(csv, new_face_dir, train_pct = 0.8, seven_races=True,drop_race=False):
+def add_imbalance(frame):
+    if not 'race' in frame.columns:
+        print("No race label found! Imbalance not added.")
+        return frame
+    
+    nrow = frame.shape[0]
+
+    np.random.seed(42)
+    choice = np.random.rand(nrow)
+    # Drop 0.8 of non-White images.
+    frame = frame[((np.array(frame['race'] == 0))) | ((np.array(frame['race'] != 0)) & (choice >= 0.8))]
+    frame = frame.reset_index(drop=True)
+    return frame
+
+def make_frame(csv, new_face_dir, train_pct = 0.8, seven_races=True,drop_race=False, imbalance=False):
 	device = torch.device('cuda:0')
 	frame = pd.read_csv(csv)
 	frame.head()
 
 	frame = relabel(frame, seven_races,drop_race)
+
+	if imbalance:
+		frame = add_imbalance(frame)
 
 	# Change face_name_align if the images are now stored in a different dir
 	# Also make sure all faces are found and can be

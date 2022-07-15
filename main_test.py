@@ -6,16 +6,16 @@ import os
 import argparse
 import datetime
 
-from dataset import make_frame, make_datasets
+from dataset import make_frame, make_datasets, prepare_ImageNet
 from prune import WS, SNIP, GraSP, Lottery, FairGRAPE, Importance, Random
-from util import make_model, save_model, save_output, download_dataset, show_acc_df
+from util import make_model, save_model, save_output, download_dataset, show_acc_df, setseed
 from train_and_val import train
 
 pruner_map = {'WS':WS, "SNIP":SNIP,'GraSP':GraSP,"Lottery":Lottery,"FairGRAPE":FairGRAPE, "Importance":Importance, "Random":Random}
 
 def experiment(args):
     checkpoint = args.checkpoint # previously pruned models
-    dataset = args.dataset # ['UTKFace', 'FairFace', "CelebA", "ImbalancedFairFace"]
+    dataset = args.dataset # ['UTKFace', 'FairFace', "CelebA", "Imagenet", "ImbalancedFairFace"]
     network = args.network # ['resnet34', 'mobilenetv2']
     loss_type = args.loss_type # ['race', 'raceAndgender', 'gender', 'attrs', 'class']
     sensitive_group = args.sensitive_group # ['race', 'raceAndgender', 'gender']
@@ -29,13 +29,10 @@ def experiment(args):
     delta_p = args.delta_p
     print_acc = args.print_acc == 1
     exp_idx = args.exp_idx 
+    save_impt = args.save_impt == 1
 
-
-    # Set random seeds for training/eval
     seed = args.seed
-    torch.manual_seed(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    setseed(seed)
 
     # Make dir for saving results
     save_dir = "trained_model/{}".format(prune_type)
@@ -47,7 +44,7 @@ def experiment(args):
     
     print("Type:{}, Network:{}, Sparsity:{}, Dataset:{}".format(prune_type, network, prune_rate,dataset))
 
-    if dataset == 'FairFace':
+    if dataset == 'FairFace' or dataset == "ImbalancedFairFace":
         csv = 'csv/FairFace.csv'
         face_dir = 'Images/FairFace'
         download_dataset(dataset, face_dir)
@@ -57,15 +54,16 @@ def experiment(args):
         elif loss_type == 'gender':
             total_classes, output_cols_each_task,col_used_training = 2, [(0,2)], [loss_type]
         else:
-            total_classes, output_cols_each_task,col_used_training = 9, [(0,7),(7,9)], ['race','gender']
+            total_classes, output_cols_each_task,col_used_training = 14, [(0,14)], ['raceAndgender']
         # col_used includes a sensitive group label. It will be used for FairGRAPE pruning, but not in training stage.
         # When making the dataset we used col_used to that the sensitive group is included
         # when trainging the model for a given task we exclude sensitive group information
         col_used = col_used_training + [sensitive_group]
         epoches = [13,3,3]
-        frames = make_frame(csv, face_dir)
+        imbalance = dataset == "ImbalancedFairFace"
+        frames = make_frame(csv, face_dir, imbalance=imbalance)
         if drop_race:
-            frames_minority = make_frame(csv, face_dir, drop_race=drop_race)
+            frames_minority = make_frame(csv, face_dir, drop_race=drop_race, imbalance=imbalance)
             train_loader_minority,_ = make_datasets(frames_minority['train'], frames_minority['val'], True, batch_size,col_used)
     elif dataset == 'UTKFace':
         csv = 'csv/UTKFace_labels.csv'
@@ -98,6 +96,7 @@ def experiment(args):
     elif dataset == "Imagenet":
         csv = 'csv/Imagenet.csv'
         face_dir = 'Images/Imagenet'
+        prepare_ImageNet(csv)
         download_dataset(dataset, face_dir)
         frames = make_frame(csv, face_dir, seven_races=False)
         # Which variables are used in training. 
@@ -115,6 +114,7 @@ def experiment(args):
     dataloaders = {'train':train_loader, 'test':test_loader}
     
     save_model_iter = args.save_model_iter
+    save_model_iter = [] if isinstance(save_model_iter, int) else save_model_iter
     print(save_model_iter)
 
     device = torch.device('cuda:0')
@@ -173,7 +173,7 @@ def experiment(args):
         prune_iters = args.prune_iter
         retrain_lr = args.retrain_lr
         retrain_iters = args.retrain_iter
-        keep_per_iter = args.keep_per_iter 
+        keep_per_iter = args.keep_per_iter    
         lr_decay_iter = args.lr_decay_iter
         # determine parameters are needed if not specified
         prune_iters = math.ceil(math.log((1-prune_rate)/pct_remain_after_this_iter, keep_per_iter)) if prune_iters is None else prune_iters 
@@ -196,6 +196,7 @@ def experiment(args):
         best_model = prunner.get_model()
         best_model.load_state_dict(torch.load(checkpoint))
         best_model = best_model.to(device)
+        prunner.update_model(best_model)
           
     # Main pruning iter
     for i in range(prune_iters):
@@ -227,6 +228,11 @@ def experiment(args):
     # Print acc scores, overall and by groups
     if print_acc:
         show_acc_df(fair_df, fair_df_full, col_used, sensitive_group)
+        
+    # Save importance scores of the final model
+    if save_impt:
+        cfgs = [prune_rate, frames['train'], face_dir, sensitive_classes, masked_grads, output_cols_each_task ,col_used, stop_batch]
+        save_impt(cfgs)
 
 if __name__ == "__main__":
 
@@ -246,10 +252,11 @@ if __name__ == "__main__":
     parser.add_argument('--lr_decay_iter',type=int, default=15, help='Iterations after which learning rate would decay.')
     parser.add_argument('--batch',type=int, default=64, help='Batch size in dataloaders')
     parser.add_argument('--impt',type=int, default=0, help='Type of importance score to be returned')
+    parser.add_argument('--save_impt',type=int, default=0, help='Save importance scores of the output model.')
     parser.add_argument('--para_batch',type=int, default=1, help='Parameters selected before updating race group in greedy method')
     parser.add_argument('--stop_batch',type=int, default=10000, help='Mini-batches of images used in importance calculation')
     parser.add_argument('--exp_idx',type=int, default=0, help='Index of current experiment')
-    parser.add_argument('--init_train',type=int, default=0,help='Whether initial training is conducted')
+    parser.add_argument('--init_train',type=int, default=1,help='Whether initial training is conducted')
     parser.add_argument('--drop_race', type=int, default=0,help="Dropping selected race(s) or not")
     parser.add_argument('--retrain', type=int, default=1,help="Retraining after pruning or not")
     parser.add_argument('--save_mask', type=int, default=0,help="Save pruning masks as an npy file")
@@ -261,3 +268,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     experiment(args)
+

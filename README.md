@@ -10,7 +10,7 @@ The code has been tested on the following environment:
 
 ```
 python 3.9
-pytorch 1.11。0
+pytorch 1.11.0
 dlib 19.22.0
 opencv2 4.5.5
 ```
@@ -23,7 +23,7 @@ conda env create -f environment.yml
 
 ## Datasets
 
-This code automatically downloads the following datasets for trianing, cross validation and testing: [FairFace](https://github.com/joojs/fairface), [UTKFace](https://susanqq.github.io/UTKFace/) and [CelebA](https://mmlab.ie.cuhk.edu.hk/projects/CelebA.html). Please request the person subtree of Imagenet through the offical [database](https://image-net.org/)
+This code automatically downloads the following datasets for trianing, cross validation and testing: [FairFace](https://github.com/joojs/fairface), [UTKFace](https://susanqq.github.io/UTKFace/) and [CelebA](https://mmlab.ie.cuhk.edu.hk/projects/CelebA.html). Request demographics labels of the Imagenet person subtree through the offical [database](https://image-net.org/), save the annotation file under /csv and images under /Images/Imagenet.
 
 
 ## Example Usage:
@@ -49,6 +49,11 @@ python main_test.py --sensitive_group 'gender' --loss_type 'classes' --prune_typ
 ```
 
 Download trained models [here](https://www.dropbox.com/sh/rk362mypuikeklh/AADF93dWPQo3rPTUhyaLBn3Ga?dl=0).
+
+Loading a trained model:
+```
+python main_test.py --sensitive_group 'gender' --loss_type 'race' --prune_type 'FairGRAPE' --network 'mobilenetv2'--dataset 'UTKFace'  --prune_rate 0.9 --keep_per_iter 0.975 --checkpoint "UTKFace_FairGRAPE_race_bygender_resnet34_0.9_0.pt" --init_train 0 --retrain 0 --print_acc 1
+```
 
 
 ## Acknowledgement 

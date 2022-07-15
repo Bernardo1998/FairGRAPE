@@ -438,13 +438,16 @@ class Importance(Prunner):
     def get_mask(self, prune_cfgs):
         prune_ratio, test_csv, new_img_dir, _, masked_grads, output_cols_each_task ,col_used, _,_, stop_batch, _ = prune_cfgs
         masks = []
-        impts = importance_by_class0(self.model, test_csv, new_img_dir, masked_grads,output_cols_each_task,col_names,stop_batch)
-        for i,layer in enumerate(self.model.modules()):
-            impt = impts[i]
-            keep_params = int((1 - compression_rate) * math.prod(impt.shape))
-            values, _ = torch.topk(impt, keep_params, sorted=True)
+        _,impts = importance_by_class0(self.model, test_csv, new_img_dir, masked_grads,output_cols_each_task,col_used,stop_batch=stop_batch)
+        for name,layer in self.model.named_modules():
+            if name not in impts[0]:
+                continue
+            impt = impts[0][name]
+            keep_params = int((1 - prune_ratio) * math.prod(impt.shape))
+            print(name, impt.shape, prune_ratio, keep_params)
+            values, _ = torch.topk(impt.view(-1), keep_params, sorted=True)
             threshold = values[-1]
-            masks.append((impt  > threshold).int())
+            masks.append((impt  > threshold).int().to(device))
         return masks
 
 ############################

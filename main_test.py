@@ -7,7 +7,7 @@ import argparse
 import datetime
 
 from dataset import make_frame, make_datasets, prepare_ImageNet
-from prune import WS, SNIP, GraSP, Lottery, FairGRAPE, Importance, Random
+from prune import WS, SNIP, GraSP, Lottery, FairGRAPE, Importance, Random, save_impt_df
 from util import make_model, save_model, save_output, download_dataset, show_acc_df, setseed
 from train_and_val import train
 
@@ -22,14 +22,16 @@ def experiment(args):
     prune_type = args.prune_type # ['FairGRAPE','SNIP','WS','Lottery', 'GraSP','Full',"readResult"]
     prune_rate = args.prune_rate # [0.5, 0.7, 0.8, 0.9, 0.99]
     batch_size = args.batch
-    init_train = args.init_train == 1
+    init_train = not args.no_init_train 
     drop_race = args.drop_race # See util.make_frame() for detail
-    retrain = args.retrain == 1
-    save_mask = args.save_mask == 1
+    retrain = not args.no_retrain
+    save_mask = args.save_mask
     delta_p = args.delta_p
-    print_acc = args.print_acc == 1
+    print_acc = args.print_acc
     exp_idx = args.exp_idx 
-    save_impt = args.save_impt == 1
+    save_impt = args.save_impt
+    para_batch = args.para_batch
+    stop_batch = args.stop_batch
 
     seed = args.seed
     setseed(seed)
@@ -139,7 +141,8 @@ def experiment(args):
         if len(col_used_training) > 1:
             target_col, samples_per_class, num_classes = [i for i in range(len(col_used_training))], 1, len(col_used_training)
         else:
-            target_col, samples_per_class, num_classes = len(col_used_training) - 1 , 10, total_classes
+            target_col, num_classes = len(col_used_training) - 1 , total_classes
+            samples_per_class = 10 if dataset != "Imagenet" else 2
         if drop_race and loss_type == 'race':
             num_classes = num_classes - 1 if drop_race < 10 else 1
         prune_cfgs = [prune_rate, target_col, num_classes, samples_per_class]
@@ -149,8 +152,6 @@ def experiment(args):
         impt = args.impt #[0, 1, 2]
         if impt == 2:
             sensitive_classes = total_classes
-        para_batch = args.para_batch
-        stop_batch = args.stop_batch
         prune_cfgs = [prune_rate, frames['train'], face_dir, sensitive_classes, masked_grads, output_cols_each_task ,col_used, para_batch, impt, stop_batch, delta_p]
     elif prune_type == "Random":
         prune_cfgs = [prune_rate, True]
@@ -192,11 +193,13 @@ def experiment(args):
     if checkpoint is not None:
         print("Loading checkpoint from {}".format(checkpoint))
         # Checkpoints contain mask attributes in layers. Must init before loading.
-        prunner.init_mask() 
-        best_model = prunner.get_model()
+        if prune_type in pruner_map:
+            prunner.init_mask() 
+            best_model = prunner.get_model()
         best_model.load_state_dict(torch.load(checkpoint))
         best_model = best_model.to(device)
-        prunner.update_model(best_model)
+        if prune_type in pruner_map:
+            prunner.update_model(best_model)
           
     # Main pruning iter
     for i in range(prune_iters):
@@ -229,10 +232,11 @@ def experiment(args):
     if print_acc:
         show_acc_df(fair_df, fair_df_full, col_used, sensitive_group)
         
-    # Save importance scores of the final model
+    # Check importance scores of the final model on the val set
     if save_impt:
-        cfgs = [prune_rate, frames['train'], face_dir, sensitive_classes, masked_grads, output_cols_each_task ,col_used, stop_batch]
-        save_impt(cfgs)
+        sensitive_classes = len(set(frames['train'][sensitive_group])) if args.impt != 2 else total_classes
+        cfgs = [best_model, frames['val'], face_dir, True, output_cols_each_task ,col_used, 1]
+        save_impt_df(cfgs)
 
 if __name__ == "__main__":
 
@@ -252,15 +256,15 @@ if __name__ == "__main__":
     parser.add_argument('--lr_decay_iter',type=int, default=15, help='Iterations after which learning rate would decay.')
     parser.add_argument('--batch',type=int, default=64, help='Batch size in dataloaders')
     parser.add_argument('--impt',type=int, default=0, help='Type of importance score to be returned')
-    parser.add_argument('--save_impt',type=int, default=0, help='Save importance scores of the output model.')
+    parser.add_argument('--save_impt',action='store_true', help='Save importance scores of the output model.')
     parser.add_argument('--para_batch',type=int, default=1, help='Parameters selected before updating race group in greedy method')
     parser.add_argument('--stop_batch',type=int, default=10000, help='Mini-batches of images used in importance calculation')
     parser.add_argument('--exp_idx',type=int, default=0, help='Index of current experiment')
-    parser.add_argument('--init_train',type=int, default=1,help='Whether initial training is conducted')
+    parser.add_argument('--no_init_train',action='store_true',help='Whether initial training is conducted')
     parser.add_argument('--drop_race', type=int, default=0,help="Dropping selected race(s) or not")
-    parser.add_argument('--retrain', type=int, default=1,help="Retraining after pruning or not")
-    parser.add_argument('--save_mask', type=int, default=0,help="Save pruning masks as an npy file")
-    parser.add_argument('--print_acc', type=int, default=0,help="Show test acc after pruning and fine tuning")
+    parser.add_argument('--no_retrain', action='store_true',help="Retraining after pruning or not")
+    parser.add_argument('--save_mask', action='store_true',help="Save pruning masks as an npy file")
+    parser.add_argument('--print_acc', action='store_true',help="Show test acc after pruning and fine tuning")
     parser.add_argument('--delta_p', type=int, default=0, help="FG selects next node by i(0) or p(1), or i*p(2)")
     parser.add_argument('--seed', type=int, default=42, help="Random seed.")
     parser.add_argument('--save_model_iter', nargs='+', help='Save current model at selected iterations', type=int,default=-1)
@@ -268,4 +272,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     experiment(args)
-

@@ -32,7 +32,7 @@ def split_image_name(val):
 # 4, Images/Imagenet: create this folder that contains all images listed in ImageNet demographics annotations.json
 # The files above will be combined to create an annotation file saved at path specified by csv.
 def prepare_ImageNet(csv):
-	if os.path.exist(csv):
+	if os.path.exists(csv):
 		print("ImageNet annotation exist!")
 		return
 

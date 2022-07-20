@@ -878,4 +878,17 @@ def importance_by_class2(model_path, test_csv, new_img_dir=None, output_cols = [
                      
     return grad_each_group, H_each_group
 
-
+def save_impt_df(cfgs):
+    best_model, test_csv, new_img_dir, masked_grads,output_cols_each_task,col_used,stop_batch = cfgs
+    _,impts = importance_by_class0(best_model, test_csv, new_img_dir, masked_grads,output_cols_each_task,col_used,stop_batch=stop_batch)
+    impt_df = {}
+    n_groups = len(impts)
+    for i in range(n_groups):
+        impt_df["".join(['group', str(i)])] = []
+        
+    for name, layer in best_model.named_modules():
+        for i in range(n_groups):
+            impt_df["".join(['group', str(i)])].append(impts[i][name].sum())
+            
+    impt_df = pd.DataFrame(impt_df)
+    impt_df.to_csv("importance_by_layer.csv")
